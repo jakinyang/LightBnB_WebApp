@@ -91,7 +91,7 @@ exports.addUser = addUser;
 const getAllReservations = function(guest_id, limit = 10) {
   return pool.query(
     `
-    SELECT p.* 
+    SELECT p.*, res.start_date, res.end_date
     FROM reservations res
     JOIN properties p
     ON res.property_id = p.id
@@ -118,10 +118,52 @@ exports.getAllReservations = getAllReservations;
  * @return {Promise<[{}]>}  A promise to the properties.
  */
 const getAllProperties = function(options, limit = 10) {
-  return pool.query(
-    `SELECT * FROM properties LIMIT $1;`,
-    [limit]
-    )
+  const queryParams = [];
+  let queryString = `
+  SELECT p.*, AVG(pr.rating) AS average_rating
+  FROM properties p
+  JOIN property_reviews pr
+  ON pr.property_id = p.id 
+  `
+  if (options.city) {
+    queryParams.push(`%${options.city}%`);
+    queryParams.length === 1 ? queryString+= `WHERE ` : queryString += ` AND `;
+    queryString += `city LIKE $${queryParams.length} `;
+  }
+  if (options.minimum_price_per_night) {
+    queryParams.push(options.minimum_price_per_night * 100);
+    queryParams.length === 1 ? queryString+= `WHERE ` : queryString+= ` AND `;
+    queryString += `cost_per_night > $${queryParams.length} `;
+  }
+  if (options.maximum_price_per_night) {
+    queryParams.push(options.maximum_price_per_night * 100);
+    queryParams.length === 1 ? queryString+= `WHERE ` : queryString+= ` AND `;
+    queryString += `cost_per_night < $${queryParams.length} `;
+  }
+  
+  if (options.owner_id) {
+    queryParams.push(options.owner_id);
+    queryParams.length === 1 ? queryString+= `WHERE ` : queryString+= ` AND `;
+    queryString += `owner_id = $${queryParams.length} `;
+    
+  }
+
+  queryString += `GROUP BY p.id `
+
+  if (options.minimum_rating) {
+    queryParams.push(options.minimum_rating);
+    queryString += `HAVING AVG(pr.rating) > $${queryParams.length} `;
+  }
+
+  queryParams.push(limit);
+  queryString += `
+  ORDER BY cost_per_night
+  LIMIT $${queryParams.length};
+  `;
+  
+  console.log(queryString, queryParams);
+
+  return pool.query(queryString,queryParams)
     .then((result) => {
       return result.rows;
     })
